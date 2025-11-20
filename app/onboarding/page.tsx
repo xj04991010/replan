@@ -7,28 +7,31 @@ import { useAuth } from "@/components/auth-provider";
 import { db } from "@/lib/firebase";
 
 const placeholders = [
-  "Reading",
-  "Workout",
-  "Sleep before 12",
-  "Walk",
-  "Deep work",
-  "Journal",
-  "Hydrate",
-  "Stretch",
-  "No sugar",
-  "Plan tomorrow",
+  "閱讀",
+  "運動",
+  "早睡",
+  "散步",
+  "深度工作",
+  "寫日記",
+  "多喝水",
+  "伸展",
+  "不喝含糖飲料",
+  "睡前整理明天",
 ];
 
 export default function OnboardingPage() {
   const { user, profile, loading } = useAuth();
   const [inputs, setInputs] = useState(() => placeholders.map(() => ""));
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
   const filledTasks = useMemo(
     () => inputs.map((value, index) => ({ value, index })).filter((task) => task.value.trim().length > 0),
     [inputs]
   );
+
+  const readyToStart = filledTasks.length >= 3;
 
   useEffect(() => {
     if (!loading && profile && Object.keys(profile.customTasks || {}).length > 0) {
@@ -40,13 +43,22 @@ export default function OnboardingPage() {
     setInputs((prev) => {
       const next = [...prev];
       next[index] = value;
+
+      const nextFilledCount = next.filter((item) => item.trim().length > 0).length;
+      if (error && nextFilledCount >= 3) {
+        setError(null);
+      }
+
       return next;
     });
   };
 
   const handleSubmit = async () => {
     if (!user) return;
-    if (filledTasks.length < 3) return;
+    if (!readyToStart) {
+      setError("至少填入 3 個習慣才能開始。");
+      return;
+    }
 
     setSubmitting(true);
     const customTasks = filledTasks.reduce<Record<string, { label: string; active: boolean; order: number }>>(
@@ -65,16 +77,27 @@ export default function OnboardingPage() {
     try {
       await setDoc(doc(db, "users", user.uid), { customTasks }, { merge: true });
       router.push("/dashboard");
+    } catch (err) {
+      console.error("failed to save onboarding tasks", err);
+      setError("儲存時出了點狀況，請再試一次。");
     } finally {
       setSubmitting(false);
     }
   };
 
+  if (loading || !user) {
+    return (
+      <div className="card">
+        <p className="text-sm text-slate-400">載入中...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="card space-y-6">
       <div>
         <h1 className="page-title">建立你的每日節奏</h1>
-        <p className="page-subtitle">選出 3–10 個你每天想檢查的行為，之後每天 30 秒快速勾選。</p>
+        <p className="page-subtitle">這 10 個是你之後每天要勾的項目，至少選 3 個最在意的開始。</p>
       </div>
       <div className="space-y-3">
         {placeholders.map((placeholder, index) => (
@@ -90,12 +113,13 @@ export default function OnboardingPage() {
       <div>
         <button
           className="btn-primary"
-          disabled={filledTasks.length < 3 || submitting}
+          disabled={!readyToStart || submitting}
           onClick={handleSubmit}
         >
-          Start
+          {submitting ? "Saving..." : "Start"}
         </button>
-        <p className="text-xs text-slate-400 mt-2">MVP 暫不支援任務編輯，請先挑出最重要的 3–10 個行為。</p>
+        <p className="text-xs text-slate-400 mt-2">MVP 階段暫時不能修改任務，請先選你最在意的 3–10 個行為。</p>
+        {error ? <p className="text-xs text-red-400 mt-1">{error}</p> : null}
       </div>
     </div>
   );
